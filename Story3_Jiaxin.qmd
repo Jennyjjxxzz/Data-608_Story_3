@@ -1,0 +1,277 @@
+---
+title: "To what extent do gun-laws versus other factors explain the differences in firearm mortality between states?"
+author: "Jiaxin Zheng"
+format: revealjs
+editor: visual
+---
+
+```{r}
+#| label: load-packages
+#| warning: false
+#| message: false
+# Load necessary libraries
+library(tidyverse)
+library(sf)
+library(usmap)
+library(ggthemes)
+library(viridis)
+library(tidyverse)
+library(usmap)
+library(ggplot2)
+library(gridExtra)
+```
+
+```{r}
+# Load datasets
+mortality <- read_csv('https://raw.githubusercontent.com/Jennyjjxxzz/Data-608_Story_3/refs/heads/main/firearm_mortality2022.csv')
+laws <- read_csv('https://raw.githubusercontent.com/Jennyjjxxzz/Data-608_Story_3/refs/heads/main/firearm_laws.csv')
+breakdown <- read_csv('https://raw.githubusercontent.com/Jennyjjxxzz/Data-608_Story_3/refs/heads/main/mortality_breakdown.csv')
+ownership <- read_csv('https://raw.githubusercontent.com/Jennyjjxxzz/Data-608_Story_3/refs/heads/main/gun-ownership-by-state.csv')
+burglary <- read_csv('https://raw.githubusercontent.com/Jennyjjxxzz/Data-608_Story_3/refs/heads/main/burglary.csv')
+```
+
+```{r}
+# Standardize all data columns names to lowercase
+mortality <- mortality %>% rename_with(tolower)
+laws <- laws %>% rename_with(tolower)
+breakdown <- breakdown %>% rename_with(tolower)
+ownership <- ownership %>% rename_with(tolower)
+burglary <- burglary %>% rename_with(tolower)
+```
+
+```{r}
+# Mapping state abbreviations to full names
+state_abbreviation_to_full <- c(
+  "AL"="Alabama", "AK"="Alaska", "AZ"="Arizona", "AR"="Arkansas", "CA"="California",
+  "CO"="Colorado", "CT"="Connecticut", "DE"="Delaware", "FL"="Florida", "GA"="Georgia",
+  "HI"="Hawaii", "ID"="Idaho", "IL"="Illinois", "IN"="Indiana", "IA"="Iowa",
+  "KS"="Kansas", "KY"="Kentucky", "LA"="Louisiana", "ME"="Maine", "MD"="Maryland",
+  "MA"="Massachusetts", "MI"="Michigan", "MN"="Minnesota", "MS"="Mississippi",
+  "MO"="Missouri", "MT"="Montana", "NE"="Nebraska", "NV"="Nevada", "NH"="New Hampshire",
+  "NJ"="New Jersey", "NM"="New Mexico", "NY"="New York", "NC"="North Carolina",
+  "ND"="North Dakota", "OH"="Ohio", "OK"="Oklahoma", "OR"="Oregon", "PA"="Pennsylvania",
+  "RI"="Rhode Island", "SC"="South Carolina", "SD"="South Dakota", "TN"="Tennessee",
+  "TX"="Texas", "UT"="Utah", "VT"="Vermont", "VA"="Virginia", "WA"="Washington",
+  "WV"="West Virginia", "WI"="Wisconsin", "WY"="Wyoming", "DC"="District of Columbia", "District of Columbia" = "District of Columbia"
+)
+```
+
+```{r}
+# Convert state abbreviations to full names in mortality and breakdown datasets
+mortality$state <- state_abbreviation_to_full[mortality$state]
+breakdown$state <- state_abbreviation_to_full[breakdown$state]
+```
+
+```{r}
+# Select and clean the columns
+mortality <- mortality %>% select(state, firearm_mortality_rate = rate, deaths)
+laws <- laws %>% select(state, lawtotal)
+breakdown <- breakdown %>% select(state, suicide_rate, homicide_rate)
+ownership <- ownership %>% select(state, gunownershippercentage)
+burglary <- burglary %>% select(state, burglary_100k)
+```
+
+```{r}
+# Merge datasets by state
+merged_data <- mortality %>% 
+  left_join(laws, by = "state") %>%
+  left_join(breakdown, by = "state") %>%
+  left_join(ownership, by = "state") %>%
+  left_join(burglary, by = "state")
+```
+
+```{r}
+# Convert numeric columns to proper type
+numeric_cols <- c("firearm_mortality_rate", "lawtotal", "suicide_rate", "homicide_rate", "gunownershippercentage", "burglary_100k")
+merged_data[numeric_cols] <- lapply(merged_data[numeric_cols], as.numeric)
+
+```
+
+```{r}
+#| echo: false
+#| eval: false
+glimpse(merged_data)
+merged_data %>% filter(if_any(everything(), is.na))
+
+```
+
+```{r}
+merged_data <- merged_data %>% 
+  filter(state != "District of Columbia")
+```
+
+## Map Showing Firearm Mortality Rate by State
+
+\- It clearly shows higher mortality concentrated in Southern states such as Mississippi and Louisiana. And Western states such as Montana and Alaska.
+
+```{r}
+library(plotly)
+
+# Nedd state abbreviations for plotly maps
+merged_data <- merged_data %>%
+  mutate(state_abbr = state.abb[match(state, state.name)])
+
+# Interactive choropleth map
+map <- plot_ly(
+  data = merged_data,
+  locations = ~state_abbr,
+  locationmode = 'USA-states',
+  z = ~firearm_mortality_rate,
+  text = ~paste(state, "<br>Mortality Rate:", firearm_mortality_rate),
+  type = 'choropleth',
+  colorscale = 'Aggrnyl',
+  colorbar = list(title = "Mortality Rate")
+) %>% layout(
+  title = "2022 Firearm Mortality Rate by State",
+  geo = list(scope = 'usa')
+)
+
+map
+```
+
+## Gun Control Laws Map by State
+
+\- States with very strict laws (like California, New York) typically have lower firearm mortality rates.
+
+```{r}
+# Categorize Gun Control clearly based on lawtotal
+merged_data <- merged_data %>%
+  mutate(gun_control_level = case_when(
+    lawtotal >= 80 ~ "Very Strict",
+    lawtotal >= 50 ~ "Strict",
+    lawtotal >= 20 ~ "Moderate",
+    lawtotal >= 10 ~ "Loose",
+    TRUE ~ "Very loose"
+  ))
+merged_data_no_na <- merged_data %>%
+  drop_na(gun_control_level)
+
+```
+
+```{r}
+map2 <- plot_usmap(data = merged_data, values = "gun_control_level", color = "orange") + 
+  scale_fill_manual(name = "Gun Control", 
+                    values = c("Very loose"="#F0F0F0", 
+                               "Loose"="#C0C0C0",
+                               "Moderate"="#808080", 
+                               "Strict"="#404040", 
+                               "Very Strict"="#000000")) +
+  labs(title = "Gun Control Laws by State") +
+  theme_minimal()
+map2
+```
+
+## Firearm Mortality Rate vs. Firearm Laws
+
+\- It shows more firearm laws correlate with lower firearm mortality.(But the trend is weak, that laws alone do not explain the whole picture)
+
+```{r}
+# Relationship Between Firearm Laws and Mortality Rate
+p1 <- merged_data %>%
+  ggplot(aes(x = lawtotal, y = firearm_mortality_rate)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Firearm Mortality Rate vs. Number of Firearm Laws", x = "Total Firearm Laws", y = "Firearm Mortality Rate")
+
+p1
+```
+
+## Firearm Mortality Rate vs. Gun Ownership Percentage
+
+\- Higher gun ownership clearly linked to higher firearm mortality.
+
+```{r}
+# Relationship Between Gun Ownership and Mortality Rate
+p2 <- merged_data %>%
+  ggplot(aes(x = gunownershippercentage, y = firearm_mortality_rate)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Firearm Mortality Rate vs. Gun Ownership Percentage", x = "Gun Ownership (%)", y = "Firearm Mortality Rate")
+
+p2
+```
+
+## Gun Ownership Percentage
+
+\- Northeast states like Montana, Wyoming, and Idaho have gun ownership rate up to 66% and they are followed by southern states such as Mississippi and Louisiana have gun ownership rates as high as 55%.
+
+```{r}
+merged_data$gunownershippercentage <- as.numeric(merged_data$gunownershippercentage)
+
+map3 <- plot_ly(
+  data = merged_data,
+  locations = ~state_abbr,
+  locationmode = 'USA-states',
+  z = ~gunownershippercentage,  # Make sure this is correctly mapped
+  text = ~paste(state, "<br>Gun Ownership(%):", gunownershippercentage),
+  type = 'choropleth',
+  colorscale = 'Aggrnyl',  # Green color scale
+  colorbar = list(title = "Gun Ownership Percentage"),
+  zmin = min(merged_data$gunownershippercentage, na.rm = TRUE),  # Ensures correct scaling
+  zmax = max(merged_data$gunownershippercentage, na.rm = TRUE)
+) %>% layout(
+  title = "Gun Ownership Percentage by State",
+  geo = list(scope = 'usa')
+)
+
+map3
+
+```
+
+## Firearm Suicide Rate by State
+
+\- Northwestern states, which have higher gun ownership rates, also tend to have higher suicide rates. These states have more relaxed gun laws.
+
+\- Surprisingly, Mississippi and Louisiana have relatively low suicide rates despite their high gun ownership.
+
+```{r}
+merged_data <- merged_data %>%
+  mutate(state_abbr = state.abb[match(state, state.name)]) %>%
+  drop_na(state_abbr, suicide_rate, homicide_rate)
+```
+
+```{r}
+map4 <- plot_ly(
+  data = merged_data,
+  locations = ~state_abbr,
+  locationmode = 'USA-states',
+  z = ~suicide_rate,
+  text = ~paste(state, "<br>Suicide Rate:", suicide_rate),
+  type = 'choropleth',
+  colorscale = 'Aggrnyl',
+  colorbar = list(title = "Suicide Rate per 100k")
+) %>% layout(
+  title = "Firearm Suicide Rate by State",
+  geo = list(scope = 'usa')
+)
+map4
+```
+
+## Firearm Homicide Rate by State
+
+\- Southern states like Mississippi and Louisiana have higher homicide rate, surprisingly they are follow by Illinois, New York, Maryland, and California.
+
+```{r}
+map5 <- plot_ly(
+  data = merged_data,
+  locations = ~state_abbr,
+  locationmode = 'USA-states',
+  z = ~homicide_rate,
+  text = ~paste(state, "<br>Homicide Rate:", homicide_rate),
+  type = 'choropleth',
+  colorscale = 'Aggrnyl',
+  colorbar = list(title = "Homicide Rate per 100k")
+) %>% layout(
+  title = "Firearm Homicide Rate by State",
+  geo = list(scope = 'usa')
+)
+map5
+```
+
+## Conclusion
+
+-   States with stricter gun laws consistently show lower firearm mortality rates. However, gun laws alone don't tell the whole story, higher gun ownership may be the cultural factor.
+
+-   While higher gun ownership is strongly linked to increased firearm mortality, but the relationship varies across different types of gun related deaths. In northwestern states, higher gun ownership is associated with higher suicide rates, whereas in southern states, it is linked to higher homicide rates.
